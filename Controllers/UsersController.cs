@@ -3,9 +3,11 @@ using Microsoft.EntityFrameworkCore;
 using TaskTrackerAPI.Data;
 using TaskTrackerAPI.DTOs;
 using TaskTrackerAPI.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace TaskTrackerAPI.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class UsersController : ControllerBase
@@ -55,6 +57,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // POST: api/users
+        [AllowAnonymous]
         [HttpPost]
         public async Task<IActionResult> Create(CreateUserDto dto)
         {

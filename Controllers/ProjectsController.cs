@@ -3,9 +3,10 @@ using Microsoft.EntityFrameworkCore;
 using TaskTrackerAPI.Data;
 using TaskTrackerAPI.DTOs;
 using TaskTrackerAPI.Models;
+using Microsoft.AspNetCore.Authorization;
 
 namespace TaskTrackerAPI.Controllers
-{
+{   [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class ProjectsController : ControllerBase
