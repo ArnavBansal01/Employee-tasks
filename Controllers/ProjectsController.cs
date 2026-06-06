@@ -20,47 +20,62 @@ namespace TaskTrackerAPI.Controllers
 
         // GET: api/projects
         [HttpGet]
-        public async Task<IActionResult> GetAll()
-        {
-            var projects = await _context.Projects
-                .Include(p => p.Tasks)
-                .ToListAsync();
+public async Task<IActionResult> GetAll()
+{
+    var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
 
-            var result = projects.Select(p => new ProjectResponseDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Description = p.Description,
-                Deadline = p.Deadline,
-                CreatedAt = p.CreatedAt,
-                TotalTasks = p.Tasks.Count
-            });
+    IQueryable<Project> query = _context.Projects.Include(p => p.Tasks);
 
-            return Ok(result);
-        }
+    if (currentUserRole != "Admin")
+        query = query.Where(p => p.UserProjects.Any(up => up.UserId == currentUserId));
+
+    var projects = await query.ToListAsync();
+
+    var result = projects.Select(p => new ProjectResponseDto
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Description = p.Description,
+        Deadline = p.Deadline,
+        CreatedAt = p.CreatedAt,
+        TotalTasks = p.Tasks.Count
+    });
+
+    return Ok(result);
+}
 
         // GET: api/projects/1
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(int id)
-        {
-            var p = await _context.Projects
-                .Include(p => p.Tasks)
-                .FirstOrDefaultAsync(p => p.Id == id);
+public async Task<IActionResult> GetById(int id)
+{
+    var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
 
-            if (p == null) return NotFound();
+    var p = await _context.Projects
+        .Include(p => p.Tasks)
+        .Include(p => p.UserProjects)
+        .FirstOrDefaultAsync(p => p.Id == id);
 
-            var result = new ProjectResponseDto
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Description = p.Description,
-                Deadline = p.Deadline,
-                CreatedAt = p.CreatedAt,
-                TotalTasks = p.Tasks.Count
-            };
+    if (p == null) return NotFound();
 
-            return Ok(result);
-        }
+    // Employee can only see projects they're members of
+    if (currentUserRole != "Admin" && !p.UserProjects.Any(up => up.UserId == currentUserId))
+        return Forbid();
+
+    var result = new ProjectResponseDto
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Description = p.Description,
+        Deadline = p.Deadline,
+        CreatedAt = p.CreatedAt,
+        TotalTasks = p.Tasks.Count
+    };
+
+    return Ok(result);
+
+}
 
         // POST: api/projects
         [Authorize(Roles = "Admin")]

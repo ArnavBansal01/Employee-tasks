@@ -24,10 +24,18 @@ namespace TaskTrackerAPI.Controllers
         public async Task<IActionResult> GetAll()
         {
             
-            var tasks = await _context.Tasks
-                .Include(t => t.User)
-                .Include(t => t.Project)
-                .ToListAsync();
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
+
+        IQueryable<TaskItem> query = _context.Tasks
+            .Include(t => t.User)
+            .Include(t => t.Project);
+
+        // Employees only see their own tasks
+        if (currentUserRole != "Admin")
+            query = query.Where(t => t.UserId == currentUserId);
+
+        var tasks = await query.ToListAsync();
 
             var result = tasks.Select(t => new TaskResponseDto
             {
@@ -49,34 +57,43 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // GET: api/tasks/1
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(int id)
-        {
-            var t = await _context.Tasks
-                .Include(t => t.User)
-                .Include(t => t.Project)
-                .FirstOrDefaultAsync(t => t.Id == id);
+       [HttpGet("{id}")]
+public async Task<IActionResult> GetById(int id)
+{
+    var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
 
-            if (t == null) return NotFound();
+    var t = await _context.Tasks
+        .Include(t => t.User)
+        .Include(t => t.Project)
+        .FirstOrDefaultAsync(t => t.Id == id);
 
-            var result = new TaskResponseDto
-            {
-                Id = t.Id,
-                Title = t.Title,
-                Description = t.Description,
-                Status = t.Status,
-                Priority = t.Priority,
-                Deadline = t.Deadline,
-                CreatedAt = t.CreatedAt,
-                UpdatedAt = t.UpdatedAt,
-                UserId = t.UserId,
-                AssignedTo = t.User != null ? t.User.Name : "Unassigned",
-                ProjectId = t.ProjectId,
-                ProjectName = t.Project != null ? t.Project.Name : "No Project"
-            };
+    if (t == null) return NotFound();
 
-            return Ok(result);
-        }
+    // Employee can only see their own tasks
+    if (currentUserRole != "Admin" && t.UserId != currentUserId)
+        return Forbid();
+
+    var result = new TaskResponseDto
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Description = t.Description,
+        Status = t.Status,
+        Priority = t.Priority,
+        Deadline = t.Deadline,
+        CreatedAt = t.CreatedAt,
+        UpdatedAt = t.UpdatedAt,
+        UserId = t.UserId,
+        AssignedTo = t.User != null ? t.User.Name : "Unassigned",
+        ProjectId = t.ProjectId,
+        ProjectName = t.Project != null ? t.Project.Name : "No Project"
+    };
+
+    return Ok(result);
+
+
+}
 
         // POST: api/tasks
         [Authorize(Roles = "Admin")]
