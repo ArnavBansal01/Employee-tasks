@@ -23,6 +23,7 @@ namespace TaskTrackerAPI.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
+            
             var tasks = await _context.Tasks
                 .Include(t => t.User)
                 .Include(t => t.Project)
@@ -78,6 +79,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // POST: api/tasks
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         public async Task<IActionResult> Create(CreateTaskDto dto)
         {
@@ -104,6 +106,13 @@ namespace TaskTrackerAPI.Controllers
             var task = await _context.Tasks.FindAsync(id);
             if (task == null) return NotFound();
 
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+            var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
+            
+            // Only Admin or the user assigned to the task can update it
+            if (currentUserRole != "Admin" && task.UserId != currentUserId)
+                return Forbid();
+
             task.Title = dto.Title;
             task.Description = dto.Description;
             task.Status = dto.Status;
@@ -116,6 +125,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // DELETE: api/tasks/1
+        [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {

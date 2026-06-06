@@ -66,12 +66,12 @@ namespace TaskTrackerAPI.Controllers
                 .AnyAsync(u => u.Email == dto.Email);
             if (exists) return BadRequest("Email already registered.");
 
-            var user = new User
+           var user = new User
             {
                 Name = dto.Name,
                 Email = dto.Email,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-                Role = dto.Role
+                Role = "Employee"  // always Employee, never trust client input
             };
 
             _context.Users.Add(user);
@@ -88,6 +88,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // DELETE: api/users/1
+        [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -97,6 +98,19 @@ namespace TaskTrackerAPI.Controllers
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
             return NoContent();
+        }
+        // PUT: api/users/1/promote
+        [Authorize(Roles = "Admin")]
+        [HttpPut("{id}/promote")]
+        public async Task<IActionResult> Promote(int id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
+
+            user.Role = "Admin";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = $"{user.Name} has been promoted to Admin." });
         }
     }
 }

@@ -63,6 +63,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // POST: api/projects
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         public async Task<IActionResult> Create(CreateProjectDto dto)
         {
@@ -88,6 +89,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // PUT: api/projects/1
+        [Authorize(Roles = "Admin")]
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, CreateProjectDto dto)
         {
@@ -103,6 +105,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // DELETE: api/projects/1
+        [Authorize(Roles = "Admin")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(int id)
         {
@@ -113,5 +116,52 @@ namespace TaskTrackerAPI.Controllers
             await _context.SaveChangesAsync();
             return NoContent();
         }
+        // POST: api/projects/1/members/2  (Admin adds user 2 to project 1)
+        [Authorize(Roles = "Admin")]
+        [HttpPost("{projectId}/members/{userId}")]
+        public async Task<IActionResult> AddMember(int projectId, int userId)
+{
+    var project = await _context.Projects.FindAsync(projectId);
+    if (project == null) return NotFound("Project not found.");
+
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null) return NotFound("User not found.");
+
+    var exists = await _context.UserProjects
+        .AnyAsync(up => up.ProjectId == projectId && up.UserId == userId);
+    if (exists) return BadRequest("User already in project.");
+
+    _context.UserProjects.Add(new UserProject
+    {
+        ProjectId = projectId,
+        UserId = userId
+    });
+
+    await _context.SaveChangesAsync();
+    return Ok(new { message = $"{user.Name} added to {project.Name}." });
+}
+
+    // GET: api/projects/1/members
+    [HttpGet("{projectId}/members")]
+    public async Task<IActionResult> GetMembers(int projectId)
+    {
+        var project = await _context.Projects.FindAsync(projectId);
+        if (project == null) return NotFound("Project not found.");
+
+        var members = await _context.UserProjects
+            .Where(up => up.ProjectId == projectId)
+            .Include(up => up.User)
+            .Select(up => new UserResponseDto
+            {
+                Id = up.User.Id,
+                Name = up.User.Name,
+                Email = up.User.Email,
+                Role = up.User.Role,
+                CreatedAt = up.User.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(members);
+}
     }
 }
