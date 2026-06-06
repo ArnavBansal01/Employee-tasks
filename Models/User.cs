@@ -13,4 +13,4 @@ namespace TaskTrackerAPI.Models
         public ICollection<TaskItem> Tasks { get; set; } = new List<TaskItem>();
         public ICollection<UserProject> UserProjects { get; set; } = new List<UserProject>();
     }
-}   
+}    
