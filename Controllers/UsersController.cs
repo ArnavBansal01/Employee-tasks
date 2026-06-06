@@ -20,27 +20,54 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // GET: api/users
+        [Authorize(Roles = "Admin")]
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll([FromQuery] PaginationParams @params)
         {
-            var users = await _context.Users.ToListAsync();
+            var query = _context.Users.AsQueryable();
 
-            var result = users.Select(u => new UserResponseDto
+            var totalCount = await query.CountAsync();
+
+            var users = await query
+                .Skip((@params.PageNumber - 1) * @params.PageSize)
+                .Take(@params.PageSize)
+                .ToListAsync();
+
+            var resultDtos = users.Select(u => new UserResponseDto
             {
                 Id = u.Id,
                 Name = u.Name,
                 Email = u.Email,
                 Role = u.Role,
                 CreatedAt = u.CreatedAt
-            });
+            }).ToList();
 
-            return Ok(result);
+            var pagedResult = new PagedResult<UserResponseDto>
+            {
+                Items = resultDtos,
+                TotalCount = totalCount,
+                PageNumber = @params.PageNumber,
+                PageSize = @params.PageSize
+            };
+
+            return Ok(pagedResult);
         }
+        
 
         // GET: api/users/1
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
+            // 1. Get the identity of the person making the request
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+            var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
+
+            // 2. SECURITY FIX: If they aren't an Admin, they can only view their own ID
+            if (currentUserRole != "Admin" && currentUserId != id)
+            {
+               return StatusCode(403, new { message = "Access Denied: You do not have permission to view other users' profiles." });
+            }
+
             var u = await _context.Users.FindAsync(id);
             if (u == null) return NotFound();
 
@@ -94,8 +121,11 @@ namespace TaskTrackerAPI.Controllers
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
-
-            _context.Users.Remove(user);
+            // Check if user has active tasks
+            var hasTasks = await _context.Tasks.AnyAsync(t => t.UserId == id);
+            if (hasTasks) 
+                return BadRequest("Cannot delete user because they have assigned tasks. Reassign tasks first.");
+             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
             return NoContent();
         }

@@ -45,37 +45,49 @@ public async Task<IActionResult> GetAll()
     return Ok(result);
 }
 
-        // GET: api/projects/1
+    // GET: api/projects/1
         [HttpGet("{id}")]
-public async Task<IActionResult> GetById(int id)
-{
-    var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-    var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
+        public async Task<IActionResult> GetById(int id)
+        {
+            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+            var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
 
-    var p = await _context.Projects
-        .Include(p => p.Tasks)
-        .Include(p => p.UserProjects)
-        .FirstOrDefaultAsync(p => p.Id == id);
+            // 1. OPTIMIZATION: Do the counting and security checks inside the SQL query
+            var projectData = await _context.Projects
+                .Where(p => p.Id == id)
+                .Select(p => new 
+                {
+                    Project = p,
+                    TaskCount = p.Tasks.Count, // SQL does the counting, saving massive RAM
+                    IsMember = p.UserProjects.Any(up => up.UserId == currentUserId)
+                })
+                .FirstOrDefaultAsync();
 
-    if (p == null) return NotFound();
+            // 2. Clean Error Message for Not Found
+            if (projectData == null) 
+            {
+                return NotFound(new { message = $"Project with ID {id} not found." });
+            }
 
-    // Employee can only see projects they're members of
-    if (currentUserRole != "Admin" && !p.UserProjects.Any(up => up.UserId == currentUserId))
-        return Forbid();
+            // 3. Clean Error Message for Security Block
+            if (currentUserRole != "Admin" && !projectData.IsMember)
+            {
+                return StatusCode(403, new { message = "Access Denied: You can only view details of projects you are assigned to." });
+            }
 
-    var result = new ProjectResponseDto
-    {
-        Id = p.Id,
-        Name = p.Name,
-        Description = p.Description,
-        Deadline = p.Deadline,
-        CreatedAt = p.CreatedAt,
-        TotalTasks = p.Tasks.Count
-    };
+            // 4. Map to DTO
+            var result = new ProjectResponseDto
+            {
+                Id = projectData.Project.Id,
+                Name = projectData.Project.Name,
+                Description = projectData.Project.Description,
+                Deadline = projectData.Project.Deadline,
+                CreatedAt = projectData.Project.CreatedAt,
+                TotalTasks = projectData.TaskCount
+            };
 
-    return Ok(result);
-
-}
+            return Ok(result);
+        }
 
         // POST: api/projects
         [Authorize(Roles = "Admin")]
@@ -127,56 +139,26 @@ public async Task<IActionResult> GetById(int id)
             var project = await _context.Projects.FindAsync(id);
             if (project == null) return NotFound();
 
+            // 1. Find and delete all tasks associated with this project
+            var projectTasks = await _context.Tasks
+                .Where(t => t.ProjectId == id)
+                .ToListAsync();
+            _context.Tasks.RemoveRange(projectTasks);
+
+            // 2. Find and delete all user assignments for this project
+            var projectAssignments = await _context.UserProjects
+                .Where(up => up.ProjectId == id)
+                .ToListAsync();
+            _context.UserProjects.RemoveRange(projectAssignments);
+
+            // 3. Finally, delete the project itself
             _context.Projects.Remove(project);
+            
+            // Save all the deletions at once
             await _context.SaveChangesAsync();
+            
             return NoContent();
         }
-        // POST: api/projects/1/members/2  (Admin adds user 2 to project 1)
-        [Authorize(Roles = "Admin")]
-        [HttpPost("{projectId}/members/{userId}")]
-        public async Task<IActionResult> AddMember(int projectId, int userId)
-{
-    var project = await _context.Projects.FindAsync(projectId);
-    if (project == null) return NotFound("Project not found.");
-
-    var user = await _context.Users.FindAsync(userId);
-    if (user == null) return NotFound("User not found.");
-
-    var exists = await _context.UserProjects
-        .AnyAsync(up => up.ProjectId == projectId && up.UserId == userId);
-    if (exists) return BadRequest("User already in project.");
-
-    _context.UserProjects.Add(new UserProject
-    {
-        ProjectId = projectId,
-        UserId = userId
-    });
-
-    await _context.SaveChangesAsync();
-    return Ok(new { message = $"{user.Name} added to {project.Name}." });
-}
-
-    // GET: api/projects/1/members
-    [HttpGet("{projectId}/members")]
-    public async Task<IActionResult> GetMembers(int projectId)
-    {
-        var project = await _context.Projects.FindAsync(projectId);
-        if (project == null) return NotFound("Project not found.");
-
-        var members = await _context.UserProjects
-            .Where(up => up.ProjectId == projectId)
-            .Include(up => up.User)
-            .Select(up => new UserResponseDto
-            {
-                Id = up.User.Id,
-                Name = up.User.Name,
-                Email = up.User.Email,
-                Role = up.User.Role,
-                CreatedAt = up.User.CreatedAt
-            })
-            .ToListAsync();
-
-        return Ok(members);
-}
+       
     }
 }

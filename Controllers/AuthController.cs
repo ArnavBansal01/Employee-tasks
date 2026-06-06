@@ -6,6 +6,8 @@ using System.Security.Claims;
 using System.Text;
 using TaskTrackerAPI.Data;
 using TaskTrackerAPI.DTOs;
+using Microsoft.AspNetCore.RateLimiting;
+
 
 namespace TaskTrackerAPI.Controllers
 {
@@ -23,6 +25,7 @@ namespace TaskTrackerAPI.Controllers
         }
 
         [HttpPost("login")]
+        [EnableRateLimiting("login")]
         public async Task<IActionResult> Login(LoginDto dto)
         {
             // Find user by email
@@ -31,7 +34,7 @@ namespace TaskTrackerAPI.Controllers
 
             if (user == null)
                 return Unauthorized("Invalid email or password.");
-
+    
             // Verify password
             bool validPassword = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
             if (!validPassword)

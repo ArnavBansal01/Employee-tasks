@@ -20,41 +20,57 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // GET: api/tasks
-        [HttpGet]
-        public async Task<IActionResult> GetAll()
-        {
-            
-            var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-        var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
+    [HttpGet]
+    public async Task<IActionResult> GetAll([FromQuery] PaginationParams @params)
+    {
+    var currentUserId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+    var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value;
 
-        IQueryable<TaskItem> query = _context.Tasks
-            .Include(t => t.User)
-            .Include(t => t.Project);
+    IQueryable<TaskItem> query = _context.Tasks
+        .Include(t => t.User)
+        .Include(t => t.Project);
 
-        // Employees only see their own tasks
-        if (currentUserRole != "Admin")
-            query = query.Where(t => t.UserId == currentUserId);
+    // Employees only see their own tasks
+    if (currentUserRole != "Admin")
+        query = query.Where(t => t.UserId == currentUserId);
 
-        var tasks = await query.ToListAsync();
+    // 1. Get the total count BEFORE we slice the data (needed for the frontend)
+    var totalCount = await query.CountAsync();
 
-            var result = tasks.Select(t => new TaskResponseDto
-            {
-                Id = t.Id,
-                Title = t.Title,
-                Description = t.Description,
-                Status = t.Status,
-                Priority = t.Priority,
-                Deadline = t.Deadline,
-                CreatedAt = t.CreatedAt,
-                UpdatedAt = t.UpdatedAt,
-                UserId = t.UserId,
-                AssignedTo = t.User != null ? t.User.Name : "Unassigned",
-                ProjectId = t.ProjectId,
-                ProjectName = t.Project != null ? t.Project.Name : "No Project"
-            });
+    // 2. Apply Pagination: Skip the previous pages, Take the current page amount
+    var tasks = await query
+        .Skip((@params.PageNumber - 1) * @params.PageSize)
+        .Take(@params.PageSize)
+        .ToListAsync();
 
-            return Ok(result);
-        }
+    // 3. Map to DTO
+    var resultDtos = tasks.Select(t => new TaskResponseDto
+    {
+        Id = t.Id,
+        Title = t.Title,
+        Description = t.Description,
+        Status = t.Status,
+        Priority = t.Priority,
+        Deadline = t.Deadline,
+        CreatedAt = t.CreatedAt,
+        UpdatedAt = t.UpdatedAt,
+        UserId = t.UserId,
+        AssignedTo = t.User != null ? t.User.Name : "Unassigned",
+        ProjectId = t.ProjectId,
+        ProjectName = t.Project != null ? t.Project.Name : "No Project"
+    }).ToList();
+
+    // 4. Wrap the results in our new PagedResult class
+    var pagedResult = new PagedResult<TaskResponseDto>
+    {
+        Items = resultDtos,
+        TotalCount = totalCount,
+        PageNumber = @params.PageNumber,
+        PageSize = @params.PageSize
+    };
+
+    return Ok(pagedResult);
+}
 
         // GET: api/tasks/1
        [HttpGet("{id}")]
@@ -100,6 +116,25 @@ public async Task<IActionResult> GetById(int id)
         [HttpPost]
         public async Task<IActionResult> Create(CreateTaskDto dto)
         {
+            var projectExists = await _context.Projects.AnyAsync(p => p.Id == dto.ProjectId);
+    if (!projectExists) 
+    {
+        return BadRequest(new { message = $"Project with ID {dto.ProjectId} does not exist." });
+    }
+
+    // 2. Check if the User actually exists
+    var userExists = await _context.Users.AnyAsync(u => u.Id == dto.UserId);
+    if (!userExists)
+    {
+        return BadRequest(new { message = $"User with ID {dto.UserId} does not exist." });
+    }
+        var isMember = await _context.UserProjects
+        .AnyAsync(up => up.ProjectId == dto.ProjectId && up.UserId == dto.UserId);
+
+        if (!isMember)
+        {
+            return BadRequest(new { message = "Cannot assign task: The user is not a member of this project." });
+        }
             var task = new TaskItem
             {
                 Title = dto.Title,
@@ -113,12 +148,41 @@ public async Task<IActionResult> GetById(int id)
 
             _context.Tasks.Add(task);
             await _context.SaveChangesAsync();
-            return CreatedAtAction(nameof(GetById), new { id = task.Id }, task);
+
+            // FETCH THE NAMES FOR THE RESPONSE
+            var projectName = await _context.Projects
+                .Where(p => p.Id == task.ProjectId)
+                .Select(p => p.Name)
+                .FirstOrDefaultAsync();
+
+            var userName = await _context.Users
+                .Where(u => u.Id == task.UserId)
+                .Select(u => u.Name)
+                .FirstOrDefaultAsync();
+
+            // Map to Response DTO so we don't get null objects
+            var responseDto = new TaskResponseDto
+            {
+                Id = task.Id,
+                Title = task.Title,
+                Description = task.Description,
+                Status = task.Status,
+                Priority = task.Priority,
+                Deadline = task.Deadline,
+                CreatedAt = task.CreatedAt,
+                UpdatedAt = task.UpdatedAt,
+                UserId = task.UserId,
+                ProjectId = task.ProjectId,
+                AssignedTo = userName ?? "Unknown User",
+                ProjectName = projectName ?? "Unknown Project"
+            };
+
+            return CreatedAtAction(nameof(GetById), new { id = task.Id }, responseDto);
         }
 
         // PUT: api/tasks/1
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, CreateTaskDto dto)
+        public async Task<IActionResult> Update(int id, UpdateTaskDto dto)
         {
             var task = await _context.Tasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -138,7 +202,35 @@ public async Task<IActionResult> GetById(int id)
             task.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
-            return Ok(task);
+           // FETCH THE NAMES FOR THE RESPONSE
+            var projectName = await _context.Projects
+                .Where(p => p.Id == task.ProjectId)
+                .Select(p => p.Name)
+                .FirstOrDefaultAsync();
+
+            var userName = await _context.Users
+                .Where(u => u.Id == task.UserId)
+                .Select(u => u.Name)
+                .FirstOrDefaultAsync();
+
+            // Map to Response DTO so we don't get null objects
+            var responseDto = new TaskResponseDto
+            {
+                Id = task.Id,
+                Title = task.Title,
+                Description = task.Description,
+                Status = task.Status,
+                Priority = task.Priority,
+                Deadline = task.Deadline,
+                CreatedAt = task.CreatedAt,
+                UpdatedAt = task.UpdatedAt,
+                UserId = task.UserId,
+                ProjectId = task.ProjectId,
+                AssignedTo = userName ?? "Unknown User",
+                ProjectName = projectName ?? "Unknown Project"
+            };
+
+            return Ok(responseDto);
         }
 
         // DELETE: api/tasks/1
