@@ -98,22 +98,22 @@ Paginated responses use this shape:
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/login` | Public | Login and receive a JWT token. |
 | `GET` | `/api/users` | Admin | Get all users with pagination. |
-| `GET` | `/api/users/{id}` | Employee/Admin | Get a user by ID. Employees can only get themselves. |
+| `GET` | `/api/users/{id}` | User/Admin | Get a user by ID. Employees can only get themselves. |
 | `POST` | `/api/users` | Public | Register a new employee account. |
 | `DELETE` | `/api/users/{id}` | Admin | Delete a user if they have no assigned tasks. |
 | `PUT` | `/api/users/{id}/promote` | Admin | Promote a user to Admin. |
-| `GET` | `/api/projects` | Employee/Admin | Get visible projects. Admins see all; employees see assigned projects. |
-| `GET` | `/api/projects/{id}` | Employee/Admin | Get project details. Employees must be assigned to the project. |
+| `GET` | `/api/projects` | User/Admin | Get visible projects. Admins see all; employees see assigned projects. |
+| `GET` | `/api/projects/{id}` | User/Admin | Get project details. Employees must be assigned to the project. |
 | `POST` | `/api/projects` | Admin | Create a project. |
 | `PUT` | `/api/projects/{id}` | Admin | Update a project. |
 | `DELETE` | `/api/projects/{id}` | Admin | Delete a project, its tasks, and its assignments. |
-| `GET` | `/api/projectassignments/{projectId}` | Employee/Admin | Get users assigned to a project. Employees must belong to that project. |
+| `GET` | `/api/projectassignments/{projectId}` | User/Admin | Get users assigned to a project. Employees must belong to that project. |
 | `POST` | `/api/projectassignments/{projectId}` | Admin | Add users to a project without removing existing users. |
 | `PUT` | `/api/projectassignments/{projectId}` | Admin | Replace project assignments with the exact provided user list. |
-| `GET` | `/api/tasks` | Employee/Admin | Get tasks with pagination. Admins see all; employees see their own. |
-| `GET` | `/api/tasks/{id}` | Employee/Admin | Get task details. Employees can only view their own tasks. |
+| `GET` | `/api/tasks` | User/Admin | Get tasks with pagination. Admins see all; employees see their own. |
+| `GET` | `/api/tasks/{id}` | User/Admin | Get task details. Employees can only view their own tasks. |
 | `POST` | `/api/tasks` | Admin | Create and assign a task. |
-| `PUT` | `/api/tasks/{id}` | Assigned Employee/Admin | Update a task. Employees can update their own assigned tasks. |
+| `PUT` | `/api/tasks/{id}` | Assignee/Admin | Update a task. Employees can update their own assigned tasks. |
 | `DELETE` | `/api/tasks/{id}` | Admin | Delete a task. |
 
 ## Auth Endpoints
@@ -466,7 +466,8 @@ Success response:
   "description": "Update the website and dashboard.",
   "deadline": "2026-08-01T00:00:00Z",
   "createdAt": "2026-06-03T09:25:00Z",
-  "totalTasks": 0
+  "tasks": [],
+  "userProjects": []
 }
 ```
 
@@ -837,62 +838,6 @@ Errors:
 | Status | Reason |
 | --- | --- |
 | `404` | Task was not found. |
-
-## Entity Relationship Diagram
-
-This API uses four main database tables: `Users`, `Projects`, `Tasks`, and `UserProjects`.
-
-```mermaid
-erDiagram
-    USERS {
-        int Id PK
-        string Name
-        string Email
-        string PasswordHash
-        string Role
-        datetime CreatedAt
-    }
-
-    PROJECTS {
-        int Id PK
-        string Name
-        string Description
-        datetime Deadline
-        datetime CreatedAt
-    }
-
-    TASKS {
-        int Id PK
-        string Title
-        string Description
-        string Status
-        string Priority
-        datetime Deadline
-        datetime CreatedAt
-        datetime UpdatedAt
-        int UserId FK
-        int ProjectId FK
-    }
-
-    USERPROJECTS {
-        int UserId PK, FK
-        int ProjectId PK, FK
-    }
-
-    USERS ||--o{ TASKS : "is assigned"
-    PROJECTS ||--o{ TASKS : "contains"
-    USERS ||--o{ USERPROJECTS : "has membership"
-    PROJECTS ||--o{ USERPROJECTS : "has members"
-```
-
-### Relationships
-
-| Relationship | Type | Description |
-| --- | --- | --- |
-| `Users` to `Tasks` | One-to-many | One user can have many assigned tasks. Each task belongs to one user. |
-| `Projects` to `Tasks` | One-to-many | One project can contain many tasks. Each task belongs to one project. |
-| `Users` to `Projects` | Many-to-many | Users can belong to many projects, and projects can have many users. This is handled through `UserProjects`. |
-| `UserProjects` composite key | Primary key | `UserId` and `ProjectId` together uniquely identify a project membership. |
 
 ## Data Models
 

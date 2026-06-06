@@ -127,8 +127,16 @@ public async Task<IActionResult> GetAll()
             project.Description = dto.Description;
             project.Deadline = dto.Deadline;
 
-            await _context.SaveChangesAsync();
-            return Ok(project);
+           await _context.SaveChangesAsync();
+        return Ok(new ProjectResponseDto
+        {
+            Id = project.Id,
+            Name = project.Name,
+            Description = project.Description,
+            Deadline = project.Deadline,
+            CreatedAt = project.CreatedAt,
+            TotalTasks = 0
+        });
         }
 
         // DELETE: api/projects/1
