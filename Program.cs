@@ -71,6 +71,15 @@ builder.Services.AddRateLimiter(options =>
         limiterOptions.QueueLimit = 0; 
     });
 });
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReact", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 var app = builder.Build();
 
@@ -83,6 +92,9 @@ else
     app.UseSwagger();   
     app.UseSwaggerUI();
 }
+
+app.UseCors("AllowReact");
+
 
 app.UseStatusCodePages(); // Turns 401s and 404s into clean JSON
 
