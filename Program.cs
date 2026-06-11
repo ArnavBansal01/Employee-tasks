@@ -6,6 +6,8 @@ using System.Text;
 using TaskTrackerAPI.Data;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -102,7 +104,31 @@ app.UseHttpsRedirection();
 
 app.UseRateLimiter(); 
 app.UseAuthentication();
+app.Use(async (context, next) =>
+{
+    if (context.User.Identity?.IsAuthenticated == true)
+    {
+        var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var stampClaim = context.User.FindFirst("SecurityStamp")?.Value;
+
+        if (userIdClaim != null && stampClaim != null)
+        {
+            var dbContext = context.RequestServices.GetRequiredService<AppDbContext>();
+            var dbUser = await dbContext.Users.FindAsync(int.Parse(userIdClaim));
+
+            if (dbUser == null || dbUser.SecurityStamp != stampClaim)
+            {
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Token invalidated.");
+                return;
+            }
+        }
+    }
+    await next();
+});
 app.UseAuthorization();
+
+
 
 
 app.MapControllers();

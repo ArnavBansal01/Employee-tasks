@@ -8,9 +8,13 @@ namespace TaskTrackerAPI.Models
         public string PasswordHash { get; set; } = string.Empty;
         public string Role { get; set; } = "Employee";
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
+        public string SecurityStamp { get; set; } = Guid.NewGuid().ToString();
         // Navigation properties
+       
+       
         public ICollection<TaskItem> Tasks { get; set; } = new List<TaskItem>();
+       
+       
         public ICollection<UserProject> UserProjects { get; set; } = new List<UserProject>();
     }
 }    

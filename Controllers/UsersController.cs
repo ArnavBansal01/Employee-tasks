@@ -138,9 +138,25 @@ namespace TaskTrackerAPI.Controllers
             if (user == null) return NotFound();
 
             user.Role = "Admin";
+            user.SecurityStamp = Guid.NewGuid().ToString(); // invalidate old tokens
+
             await _context.SaveChangesAsync();
 
             return Ok(new { message = $"{user.Name} has been promoted to Admin." });
+        }
+        // PUT: api/users/1/demote
+        [Authorize(Roles = "Admin")]
+        [HttpPut("{id}/demote")]
+        public async Task<IActionResult> Demote(int id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
+
+            user.SecurityStamp = Guid.NewGuid().ToString(); // invalidate old tokens
+            user.Role = "Employee";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = $"{user.Name} has been demoted to Employee." });
         }
     }
 }

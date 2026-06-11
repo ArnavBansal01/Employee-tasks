@@ -102,6 +102,7 @@ Paginated responses use this shape:
 | `POST` | `/api/users` | Public | Register a new employee account. |
 | `DELETE` | `/api/users/{id}` | Admin | Delete a user if they have no assigned tasks. |
 | `PUT` | `/api/users/{id}/promote` | Admin | Promote a user to Admin. |
+| `PUT` | `/api/users/{id}/demote` | Admin | Demote a user to Employee. |
 | `GET` | `/api/projects` | Employee/Admin | Get visible projects. Admins see all; employees see assigned projects. |
 | `GET` | `/api/projects/{id}` | Employee/Admin | Get project details. Employees must be assigned to the project. |
 | `POST` | `/api/projects` | Admin | Create a project. |
@@ -320,6 +321,30 @@ Success response:
 ```json
 {
   "message": "Employee User has been promoted to Admin."
+}
+```
+
+Errors:
+
+| Status | Reason |
+| --- | --- |
+| `404` | User was not found. |
+
+### Demote User
+
+```http
+PUT /api/users/{id}/demote
+```
+
+Demotes a user to the `Employee` role.
+
+Authorization: Admin only.
+
+Success response:
+
+```json
+{
+  "message": "Admin User has been demoted to Employee."
 }
 ```
 

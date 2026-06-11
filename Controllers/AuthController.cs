@@ -8,7 +8,6 @@ using TaskTrackerAPI.Data;
 using TaskTrackerAPI.DTOs;
 using Microsoft.AspNetCore.RateLimiting;
 
-
 namespace TaskTrackerAPI.Controllers
 {
     [ApiController]
@@ -28,20 +27,17 @@ namespace TaskTrackerAPI.Controllers
         [EnableRateLimiting("login")]
         public async Task<IActionResult> Login(LoginDto dto)
         {
-            // Find user by email
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Email == dto.Email);
 
             if (user == null)
                 return Unauthorized("Invalid email or password.");
-    
-            // Verify password
+
             bool validPassword = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
             if (!validPassword)
                 return Unauthorized("Invalid email or password.");
 
-            // Generate JWT token
-            var token = GenerateToken(user.Id, user.Email, user.Role);
+            var token = GenerateToken(user.Id, user.Email, user.Role, user.SecurityStamp);
 
             return Ok(new
             {
@@ -57,7 +53,7 @@ namespace TaskTrackerAPI.Controllers
             });
         }
 
-        private string GenerateToken(int userId, string email, string role)
+        private string GenerateToken(int userId, string email, string role, string securityStamp)
         {
             var secret = _config["JwtSettings:SecretKey"]!;
             var issuer = _config["JwtSettings:Issuer"]!;
@@ -71,7 +67,8 @@ namespace TaskTrackerAPI.Controllers
             {
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
                 new Claim(ClaimTypes.Email, email),
-                new Claim(ClaimTypes.Role, role)
+                new Claim(ClaimTypes.Role, role),
+                new Claim("SecurityStamp", securityStamp)
             };
 
             var token = new JwtSecurityToken(
