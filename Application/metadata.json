@@ -1,0 +1,6 @@
+{
+  "name": "Task Tracker",
+  "description": "Employee Task Tracker SaaS Application",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
