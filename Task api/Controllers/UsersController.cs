@@ -1,9 +1,10 @@
+using FirebaseAdmin.Auth; 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TaskTrackerAPI.Data;
 using TaskTrackerAPI.DTOs;
 using TaskTrackerAPI.Models;
-using Microsoft.AspNetCore.Authorization;
 
 namespace TaskTrackerAPI.Controllers
 {
@@ -53,7 +54,6 @@ namespace TaskTrackerAPI.Controllers
             return Ok(pagedResult);
         }
         
-
         // GET: api/users/1
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
@@ -84,34 +84,57 @@ namespace TaskTrackerAPI.Controllers
         }
 
         // POST: api/users
-        [AllowAnonymous]
+        // UPDATED: Now requires Admin role and uses Firebase Admin SDK
+        [Authorize(Roles = "Admin")]
         [HttpPost]
         public async Task<IActionResult> Create(CreateUserDto dto)
         {
-            // Check if email already exists
+            // Check if email already exists locally
             var exists = await _context.Users
                 .AnyAsync(u => u.Email == dto.Email);
-            if (exists) return BadRequest("Email already registered.");
+            if (exists) return BadRequest("Email already registered in the database.");
 
-           var user = new User
+            try
             {
-                Name = dto.Name,
-                Email = dto.Email,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-                Role = "Employee"  // always Employee, never trust client input
-            };
+                // 1. Forge the user inside Google's Firebase Vault
+                var firebaseArgs = new UserRecordArgs
+                {
+                    Email = dto.Email,
+                    Password = dto.Password, // Firebase handles secure hashing automatically!
+                    DisplayName = dto.Name,
+                    Disabled = false
+                };
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+                UserRecord firebaseUser = await FirebaseAuth.DefaultInstance.CreateUserAsync(firebaseArgs);
+                string generatedFirebaseUid = firebaseUser.Uid;
 
-            return CreatedAtAction(nameof(GetById), new { id = user.Id }, new UserResponseDto
+                // 2. Save the loyal subject to your SQL Database
+                var user = new User
+                {
+                    Name = dto.Name,
+                    Email = dto.Email,
+                    Role = "Employee", // always Employee initially
+                    FirebaseUid = generatedFirebaseUid, // Linked securely
+                    CreatedAt = DateTime.UtcNow,
+                    SecurityStamp = Guid.NewGuid().ToString() // Generate their first stamp
+                };
+
+                _context.Users.Add(user);
+                await _context.SaveChangesAsync();
+
+                return CreatedAtAction(nameof(GetById), new { id = user.Id }, new UserResponseDto
+                {
+                    Id = user.Id,
+                    Name = user.Name,
+                    Email = user.Email,
+                    Role = user.Role,
+                    CreatedAt = user.CreatedAt
+                });
+            }
+            catch (FirebaseAuthException ex)
             {
-                Id = user.Id,
-                Name = user.Name,
-                Email = user.Email,
-                Role = user.Role,
-                CreatedAt = user.CreatedAt
-            });
+                return BadRequest($"Firebase Provisioning Failed: {ex.Message}");
+            }
         }
 
         // DELETE: api/users/1
@@ -129,6 +152,7 @@ namespace TaskTrackerAPI.Controllers
             await _context.SaveChangesAsync();
             return NoContent();
         }
+
         // PUT: api/users/1/promote
         [Authorize(Roles = "Admin")]
         [HttpPut("{id}/promote")]
@@ -144,6 +168,7 @@ namespace TaskTrackerAPI.Controllers
 
             return Ok(new { message = $"{user.Name} has been promoted to Admin." });
         }
+
         // PUT: api/users/1/demote
         [Authorize(Roles = "Admin")]
         [HttpPut("{id}/demote")]

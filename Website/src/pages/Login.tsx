@@ -5,6 +5,9 @@ import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../firebase";
+
 export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,12 +23,57 @@ export function LoginPage() {
     setError("");
     setLoading(true);
 
-    try {
-      const response = await api.post("/auth/login", { email, password });
-      login(response.data.token, response.data.user);
+   try {
+      // STEP 1: Let Firebase verify the password and give us the token
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseToken = await userCredential.user.getIdToken();
+
+      // STEP 2: Send the token to .NET to sync the database
+      const syncResponse = await api.post("/auth/firebase-sync", {}, {
+        headers: {
+          Authorization: `Bearer ${firebaseToken}` // Pass it manually this first time
+        }
+      });
+
+      // FIX: Ensure we are accessing the data correctly. 
+      // If your backend returns { message: "...", userId: 1 }, access it via .data
+      const backendData = syncResponse.data;
+      // We will default to 'undefined' to trigger a controlled error if it's missing, rather than a crash.
+      const userId = backendData?.userId || backendData?.user?.id;
+
+      if (!userId) {
+          throw new Error("Could not retrieve user ID from backend sync.");
+      }
+
+      // STEP 3: Fetch the full user profile
+      const userResponse = await api.get(`/users/${userId}`, {
+        headers: {
+          Authorization: `Bearer ${firebaseToken}`
+        }
+      });
+
+      // STEP 4: Store the token and full user profile in your context, then redirect
+      login(firebaseToken, userResponse.data);
       navigate("/dashboard");
+      
     } catch (err: any) {
-      setError(err.response?.data || "Invalid email or password.");
+      console.error("Login pipeline failed:", err);
+      
+      // Catch specific Firebase errors (wrong password, user not found, etc.)
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError("Invalid email or password.");
+      } 
+      else {
+        // FIX: Safely extract the error message from the complex .NET error object
+        const errorMessage = 
+            err.response?.data?.message || 
+            err.response?.data?.title || // Catches .NET ValidationProblemDetails
+            (typeof err.response?.data === 'string' ? err.response.data : null) || 
+            err.message || 
+            "An error occurred during login.";
+            
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
