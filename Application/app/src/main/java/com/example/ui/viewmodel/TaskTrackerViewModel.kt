@@ -169,26 +169,56 @@ class TaskTrackerViewModel(
         RetrofitClient.setOnUnauthorizedListener {
             logout()
         }
+        RetrofitClient.setOnTokenRefreshedListener { newToken, newRefreshToken ->
+            viewModelScope.launch {
+                val currentAuth = _authInfo.value
+                if (currentAuth != null) {
+                    val updatedUser = ApiUser(
+                        id = currentAuth.userId,
+                        name = currentAuth.name,
+                        email = currentAuth.email,
+                        role = currentAuth.role
+                    )
+                    tokenDataStore.saveAuth(newToken, newRefreshToken, updatedUser)
+                }
+            }
+        }
         viewModelScope.launch {
             // Restore theme
             tokenDataStore.isDarkTheme.collect { dark -> _themeIsDark.value = dark }
         }
         viewModelScope.launch {
             // Restore auth session
-            combine(
+            combine<Any?, Triple<AuthInfo, String, String>?>(
                 tokenDataStore.token,
+                tokenDataStore.refreshToken,
                 tokenDataStore.userId,
                 tokenDataStore.userName,
                 tokenDataStore.userEmail,
                 tokenDataStore.userRole
-            ) { token, id, name, email, role ->
-                if (token != null && id != null && name != null && email != null && role != null) {
-                    AuthInfo(id, name, email, role, token)
+            ) { flowArray ->
+                val token = flowArray[0] as? String
+                val refresh = flowArray[1] as? String
+                val id = flowArray[2] as? Int
+                val name = flowArray[3] as? String
+                val email = flowArray[4] as? String
+                val role = flowArray[5] as? String
+
+                if (token != null && refresh != null && id != null && name != null && email != null && role != null) {
+                    Triple(AuthInfo(id, name, email, role, token), refresh, role)
                 } else null
-            }.collect { auth ->
-                _authInfo.value = auth
-                if (auth != null) RetrofitClient.setToken(auth.token)
-                else RetrofitClient.setToken(null)
+            }.collect { authData ->
+                if (authData != null) {
+                    _authInfo.value = authData.first
+                    RetrofitClient.setToken(authData.first.token)
+                    RetrofitClient.setRefreshToken(authData.second)
+                    RetrofitClient.setUserRole(authData.third)
+                } else {
+                    _authInfo.value = null
+                    RetrofitClient.setToken(null)
+                    RetrofitClient.setRefreshToken(null)
+                    RetrofitClient.setUserRole(null)
+                }
             }
         }
     }
@@ -211,25 +241,63 @@ class TaskTrackerViewModel(
         viewModelScope.launch {
             _loginState.value = UiState.Loading
             runCatching {
-                RetrofitClient.api.login(LoginRequest(email, password))
-            }.onSuccess { resp ->
-                if (resp.isSuccessful && resp.body() != null) {
-                    val body = resp.body()!!
-                    RetrofitClient.setToken(body.token)
-                    tokenDataStore.saveAuth(body.token, body.user)
-                    _authInfo.value = AuthInfo(
-                        userId = body.user.id,
-                        name   = body.user.name,
-                        email  = body.user.email,
-                        role   = body.user.role,
-                        token  = body.token
-                    )
-                    _loginState.value = UiState.Success(Unit)
-                } else {
-                    _loginState.value = UiState.Error("Invalid email or password")
+                // Step 1: Firebase Auth REST Login
+                val firebaseResp = RetrofitClient.api.firebaseLogin(
+                    apiKey = com.example.BuildConfig.FIREBASE_API_KEY,
+                    request = FirebaseLoginRequest(email, password)
+                )
+                if (!firebaseResp.isSuccessful || firebaseResp.body() == null) {
+                    val rawError = firebaseResp.errorBody()?.string()
+                    val errorMessage = try {
+                        val json = org.json.JSONObject(rawError ?: "")
+                        json.getJSONObject("error").getString("message")
+                    } catch (e: Exception) {
+                        "Invalid email or password"
+                    }
+                    throw Exception(errorMessage)
                 }
-            }.onFailure {
-                _loginState.value = UiState.Error("Network error: ${it.message}")
+                val firebaseData = firebaseResp.body()!!
+                val firebaseToken = firebaseData.idToken
+
+                // Set token in client so next calls are authorized
+                RetrofitClient.setToken(firebaseToken)
+                RetrofitClient.setRefreshToken(firebaseData.refreshToken)
+
+                // Step 2: Backend sync
+                val syncResp = RetrofitClient.api.firebaseSync(authHeader = "Bearer $firebaseToken")
+                if (!syncResp.isSuccessful || syncResp.body() == null) {
+                    throw Exception("Backend sync failed")
+                }
+                val localUserId = syncResp.body()!!.userId
+
+                // Step 3: Fetch profile
+                val userResp = RetrofitClient.api.getUserById(localUserId)
+                if (!userResp.isSuccessful || userResp.body() == null) {
+                    throw Exception("Failed to fetch user profile")
+                }
+                val localUser = userResp.body()!!
+
+                RetrofitClient.setUserRole(localUser.role)
+
+                Pair(firebaseData, localUser)
+            }.onSuccess { (firebaseData, localUser) ->
+                val token = firebaseData.idToken
+                tokenDataStore.saveAuth(token, firebaseData.refreshToken, localUser)
+
+                _authInfo.value = AuthInfo(
+                    userId = localUser.id,
+                    name   = localUser.name,
+                    email  = localUser.email,
+                    role   = localUser.role,
+                    token  = token
+                )
+                _loginState.value = UiState.Success(Unit)
+            }.onFailure { err ->
+                // Clear any partially set tokens in client on failure
+                RetrofitClient.setToken(null)
+                RetrofitClient.setRefreshToken(null)
+                RetrofitClient.setUserRole(null)
+                _loginState.value = UiState.Error(err.message ?: "Authentication failed")
             }
         }
     }
@@ -240,6 +308,8 @@ class TaskTrackerViewModel(
         viewModelScope.launch {
             tokenDataStore.clearAuth()
             RetrofitClient.setToken(null)
+            RetrofitClient.setRefreshToken(null)
+            RetrofitClient.setUserRole(null)
             _authInfo.value = null
             _tasks.value = emptyList()
             _projects.value = emptyList()

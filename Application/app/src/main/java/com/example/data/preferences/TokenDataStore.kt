@@ -15,6 +15,7 @@ class TokenDataStore(private val context: Context) {
 
     companion object {
         val TOKEN_KEY      = stringPreferencesKey("jwt_token")
+        val REFRESH_TOKEN_KEY = stringPreferencesKey("refresh_token")
         val USER_ID_KEY    = intPreferencesKey("user_id")
         val USER_NAME_KEY  = stringPreferencesKey("user_name")
         val USER_EMAIL_KEY = stringPreferencesKey("user_email")
@@ -23,6 +24,7 @@ class TokenDataStore(private val context: Context) {
     }
 
     val token: Flow<String?> = context.dataStore.data.map { it[TOKEN_KEY] }
+    val refreshToken: Flow<String?> = context.dataStore.data.map { it[REFRESH_TOKEN_KEY] }
     val userId: Flow<Int?>   = context.dataStore.data.map { it[USER_ID_KEY] }
     val userName: Flow<String?> = context.dataStore.data.map { it[USER_NAME_KEY] }
     val userEmail: Flow<String?> = context.dataStore.data.map { it[USER_EMAIL_KEY] }
@@ -37,19 +39,21 @@ class TokenDataStore(private val context: Context) {
         }
     }
 
-    suspend fun saveAuth(token: String, user: ApiUser) {
+    suspend fun saveAuth(token: String, refreshToken: String, user: ApiUser) {
         context.dataStore.edit { prefs ->
-            prefs[TOKEN_KEY]      = token
-            prefs[USER_ID_KEY]    = user.id
-            prefs[USER_NAME_KEY]  = user.name
-            prefs[USER_EMAIL_KEY] = user.email
-            prefs[USER_ROLE_KEY]  = user.role
+            prefs[TOKEN_KEY]         = token
+            prefs[REFRESH_TOKEN_KEY] = refreshToken
+            prefs[USER_ID_KEY]       = user.id
+            prefs[USER_NAME_KEY]     = user.name
+            prefs[USER_EMAIL_KEY]    = user.email
+            prefs[USER_ROLE_KEY]     = user.role
         }
     }
 
     suspend fun clearAuth() {
         context.dataStore.edit { prefs ->
             prefs.remove(TOKEN_KEY)
+            prefs.remove(REFRESH_TOKEN_KEY)
             prefs.remove(USER_ID_KEY)
             prefs.remove(USER_NAME_KEY)
             prefs.remove(USER_EMAIL_KEY)

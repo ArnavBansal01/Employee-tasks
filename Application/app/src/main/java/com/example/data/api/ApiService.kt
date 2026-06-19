@@ -10,6 +10,17 @@ interface ApiService {
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
 
+    @POST("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword")
+    suspend fun firebaseLogin(
+        @Query("key") apiKey: String,
+        @Body request: FirebaseLoginRequest
+    ): Response<FirebaseLoginResponse>
+
+    @POST("auth/firebase-sync")
+    suspend fun firebaseSync(
+        @Header("Authorization") authHeader: String
+    ): Response<FirebaseSyncResponse>
+
     // ── Users ─────────────────────────────────────────────────────────────────
 
     /** Admin: paginated list of all users */

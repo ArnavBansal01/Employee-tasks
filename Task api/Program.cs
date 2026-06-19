@@ -70,7 +70,39 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = firebaseProjectId,
             ValidateLifetime = true
         };
-    });
+        /*
+        // NEW: check Firebase's revocation list on every request.
+        // Without this, RevokeRefreshTokensAsync() only blocks the user
+        // once their 1-hour ID token naturally expires — not immediately.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var rawToken = context.HttpContext.Request.Headers["Authorization"]
+                    .FirstOrDefault()?.Split(" ").Last();
+
+                if (string.IsNullOrEmpty(rawToken))
+                {
+                    context.Fail("Missing token.");
+                    return;
+                }
+
+                try
+                {
+                    // checkRevoked: true forces a check against Firebase's
+                    // revocation list, not just signature/expiry validation
+                    await FirebaseAdmin.Auth.FirebaseAuth.DefaultInstance
+                        .VerifyIdTokenAsync(rawToken, checkRevoked: true);
+                }
+                catch (FirebaseAdmin.Auth.FirebaseAuthException)
+                {
+                    context.Fail("Token has been revoked.");
+                }
+            }
+        };
+        */
+});
+   
 
 // Lets a single [Authorize] attribute accept EITHER scheme.
 // Existing local JWTs keep working; new Firebase ID tokens also work.
@@ -151,26 +183,61 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
+    // Authenticate the Firebase scheme if the default (Local Bearer) scheme wasn't successful
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        var result = await context.AuthenticateAsync("Firebase");
+        if (result.Succeeded && result.Principal != null)
+        {
+            context.User = result.Principal;
+        }
+    }
+
+    Console.WriteLine($"[AuthMiddleware] Request Path: {context.Request.Path}, IsAuthenticated: {context.User.Identity?.IsAuthenticated}");
     if (context.User.Identity?.IsAuthenticated == true)
     {
+        foreach (var claim in context.User.Claims)
+        {
+            Console.WriteLine($"[AuthMiddleware]   Claim: {claim.Type} = {claim.Value}");
+        }
         var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var stampClaim = context.User.FindFirst("SecurityStamp")?.Value;
 
-        // IMPORTANT: this check now only applies to LOCAL-JWT requests.
-        // Firebase-authenticated requests won't carry a "SecurityStamp" claim
-        // at all (Firebase tokens don't know about it), so stampClaim will be
-        // null for them and this block is skipped entirely - it does not
-        // block Firebase logins, and local JWT behavior is unchanged.
-        if (userIdClaim != null && stampClaim != null)
+        if (userIdClaim != null)
         {
             var dbContext = context.RequestServices.GetRequiredService<AppDbContext>();
             var dbUser = await dbContext.Users.FindAsync(int.Parse(userIdClaim));
 
-            if (dbUser == null || dbUser.SecurityStamp != stampClaim)
+            if (dbUser == null)
             {
                 context.Response.StatusCode = 401;
                 await context.Response.WriteAsync("Token invalidated.");
                 return;
+            }
+
+            // 1. Check local security stamp (only if it was present in the token)
+            if (stampClaim != null && dbUser.SecurityStamp != stampClaim)
+            {
+                context.Response.StatusCode = 401;
+                await context.Response.WriteAsync("Token invalidated.");
+                return;
+            }
+
+            // 2. Check if client-cached role matches database role
+            if (context.Request.Headers.TryGetValue("X-User-Role", out var clientRole))
+            {
+                Console.WriteLine($"[AuthMiddleware] DB Role: '{dbUser.Role}', Client Role Header: '{clientRole}'");
+                if (dbUser.Role != clientRole.ToString())
+                {
+                    Console.WriteLine("[AuthMiddleware] Role mismatch! Returning 401 Unauthorized.");
+                    context.Response.StatusCode = 401;
+                    await context.Response.WriteAsync("Role changed.");
+                    return;
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[AuthMiddleware] User {dbUser.Email} (ID {dbUser.Id}) sent no X-User-Role header.");
             }
         }
     }

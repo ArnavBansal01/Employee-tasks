@@ -23,6 +23,20 @@ api.interceptors.request.use(async (config) => {
       config.headers.Authorization = `Bearer ${localToken}`;
     }
   }
+
+  // Attach client-side cached role so backend can detect immediate role updates
+  const localUserStr = localStorage.getItem('user');
+  if (localUserStr) {
+    try {
+      const localUser = JSON.parse(localUserStr);
+      if (localUser && localUser.role) {
+        config.headers['X-User-Role'] = localUser.role;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
   return config;
 });
 

@@ -21,7 +21,7 @@ data class ApiUser(
     val name: String,
     val email: String,
     val role: String,
-    val createdAt: String,
+    val createdAt: String = "",
     @com.google.gson.annotations.SerializedName("userId") val userId: Int? = null
 ) {
     val idOrUserId: Int get() = userId ?: id
@@ -109,4 +109,26 @@ data class UpdateTaskRequest(
     val deadline: String?,
     val userId: Int,
     val projectId: Int
+)
+
+// ── Firebase Auth ─────────────────────────────────────────────────────────────
+
+data class FirebaseLoginRequest(
+    val email: String,
+    val password: String,
+    val returnSecureToken: Boolean = true
+)
+
+data class FirebaseLoginResponse(
+    val idToken: String,
+    val email: String,
+    val refreshToken: String,
+    val expiresIn: String,
+    val localId: String,
+    val registered: Boolean
+)
+
+data class FirebaseSyncResponse(
+    val message: String,
+    val userId: Int
 )

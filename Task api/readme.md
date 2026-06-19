@@ -26,12 +26,21 @@ All endpoints below are relative to the base URL.
 
 ## Authentication
 
-Most endpoints require a JWT access token.
+The API supports dual authentication schemes:
 
-Send the token returned from `POST /api/auth/login` in the `Authorization` header:
+1. **Local JWT Authentication**: Used by legacy clients. The token is obtained via `POST /api/auth/login` and sent as a Bearer token.
+2. **Firebase Authentication**: Used by the Web and Android clients. Firebase-issued ID tokens are verified directly against Google's servers.
+
+Send either token in the `Authorization` header:
 
 ```http
-Authorization: Bearer <jwt-token>
+Authorization: Bearer <token>
+```
+
+When using Firebase Authentication, the client must attach its cached role in the custom `X-User-Role` header to allow immediate server-side validation against role changes:
+
+```http
+X-User-Role: Admin
 ```
 
 ## Roles
@@ -96,10 +105,11 @@ Paginated responses use this shape:
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/login` | Public | Login and receive a JWT token. |
+| `POST` | `/api/auth/login` | Public | [Local Auth] Login and receive a JWT token. |
+| `POST` | `/api/auth/firebase-sync` | Firebase Token | [Firebase Auth] Sync Firebase user ID token and link/create local DB user profile. |
 | `GET` | `/api/users` | Admin | Get all users with pagination. |
 | `GET` | `/api/users/{id}` | Employee/Admin | Get a user by ID. Employees can only get themselves. |
-| `POST` | `/api/users` | Public | Register a new employee account. |
+| `POST` | `/api/users` | Public | Register a new employee account (provisions user in Firebase). |
 | `DELETE` | `/api/users/{id}` | Admin | Delete a user if they have no assigned tasks. |
 | `PUT` | `/api/users/{id}/promote` | Admin | Promote a user to Admin. |
 | `PUT` | `/api/users/{id}/demote` | Admin | Demote a user to Employee. |
@@ -119,7 +129,7 @@ Paginated responses use this shape:
 
 ## Auth Endpoints
 
-### Login
+### Local Login (Legacy)
 
 ```http
 POST /api/auth/login
@@ -166,6 +176,32 @@ Errors:
 | --- | --- |
 | `401` | Invalid email or password. |
 | `429` | Too many login attempts. |
+
+### Firebase Sync
+
+```http
+POST /api/auth/firebase-sync
+```
+
+Synchronizes a Firebase-authenticated user with the local SQL database. If the user does not exist locally, they are created with the default `Employee` role. If they exist but lack their Firebase UID link, the database is updated to map their Firebase credentials.
+
+Authorization: Requires a valid Firebase ID token in the `Authorization: Bearer <firebase-token>` header.
+
+Success response:
+
+```json
+{
+  "message": "User already synced and active.",
+  "userId": 2
+}
+```
+
+Errors:
+
+| Status | Reason |
+| --- | --- |
+| `400` | Invalid Firebase token structure. |
+| `401` | Unauthorized (invalid or expired token). |
 
 ## User Endpoints
 
@@ -874,6 +910,8 @@ erDiagram
         string Name
         string Email
         string PasswordHash
+        string FirebaseUid
+        string SecurityStamp
         string Role
         datetime CreatedAt
     }
@@ -975,12 +1013,42 @@ erDiagram
 6. Create tasks for project members with `POST /api/tasks`.
 7. Employees can view their assigned projects and tasks with `GET /api/projects` and `GET /api/tasks`.
 
-## Swagger
+## Running the Backend Server
 
-Swagger is enabled in development mode.
+### Prerequisites
 
-After starting the API, open:
+- **.NET SDK**: 10.0 or higher.
+- **SQL Database**: Microsoft SQL Server / LocalDB.
+- **Firebase Project Credentials**: A configured Firebase auth project.
 
-```text
-/swagger
-```
+### Running Steps
+
+1. **Place Firebase Admin Service Key**:
+   - Save your Firebase Service Account JSON file as `firebase-adminsdk.json` in the root of the `Task api/` folder.
+
+2. **Configure Settings**:
+   - Update `appsettings.json` with your SQL database Connection String (`DefaultConnection`), and Firebase configuration:
+     ```json
+     {
+       "ConnectionStrings": {
+         "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=TaskTrackerDb;Trusted_Connection=True;MultipleActiveResultSets=true"
+       },
+       "Firebase": {
+         "ProjectId": "task-trackers-(id)"
+       }
+     }
+     ```
+
+3. **Apply Database Migrations**:
+   - Open a command line in the `Task api/` directory and execute:
+     ```bash
+     dotnet ef database update
+     ```
+
+4. **Launch the Server**:
+   - Execute the run command:
+     ```bash
+     dotnet run --launch-profile http
+     ```
+   - The API will start on: `http://localhost:5221`
+   - Access the Swagger documentation UI at: `http://localhost:5221/swagger`

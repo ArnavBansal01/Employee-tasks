@@ -153,7 +153,7 @@ namespace TaskTrackerAPI.Controllers
             return NoContent();
         }
 
-        // PUT: api/users/1/promote
+                // PUT: api/users/1/promote
         [Authorize(Roles = "Admin")]
         [HttpPut("{id}/promote")]
         public async Task<IActionResult> Promote(int id)
@@ -162,9 +162,12 @@ namespace TaskTrackerAPI.Controllers
             if (user == null) return NotFound();
 
             user.Role = "Admin";
-            user.SecurityStamp = Guid.NewGuid().ToString(); // invalidate old tokens
-
+            user.SecurityStamp = Guid.NewGuid().ToString(); // Rotate security stamp to invalidate session
             await _context.SaveChangesAsync();
+
+            // Commented out to avoid slow Firebase network checks on every request
+            // if (!string.IsNullOrEmpty(user.FirebaseUid))
+            //     await FirebaseAuth.DefaultInstance.RevokeRefreshTokensAsync(user.FirebaseUid);
 
             return Ok(new { message = $"{user.Name} has been promoted to Admin." });
         }
@@ -177,9 +180,13 @@ namespace TaskTrackerAPI.Controllers
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
 
-            user.SecurityStamp = Guid.NewGuid().ToString(); // invalidate old tokens
             user.Role = "Employee";
+            user.SecurityStamp = Guid.NewGuid().ToString(); // Rotate security stamp to invalidate session
             await _context.SaveChangesAsync();
+
+            // Commented out to avoid slow Firebase network checks on every request
+            // if (!string.IsNullOrEmpty(user.FirebaseUid))
+            //     await FirebaseAuth.DefaultInstance.RevokeRefreshTokensAsync(user.FirebaseUid);
 
             return Ok(new { message = $"{user.Name} has been demoted to Employee." });
         }

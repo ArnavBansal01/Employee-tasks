@@ -43,15 +43,16 @@ export function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
   const [creating, setCreating] = useState(false);
+  const [updatingIds, setUpdatingIds] = useState<number[]>([]);
 
   useEffect(() => {
     fetchUsers();
   }, [page]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (silent?: boolean) => {
     try {
       setLoadError("");
-      setLoading(true);
+      if (silent !== true) setLoading(true);
       const res = await api.get(`/users?PageNumber=${page}&PageSize=10`);
       const items: User[] = (res.data.items ?? res.data).map((u: any) => ({
         ...u,
@@ -89,20 +90,42 @@ export function UsersPage() {
   };
 
   const promote = async (id: number) => {
+    setUpdatingIds((prev) => [...prev, id]);
+    const originalUsers = [...users];
+
+    // Optimistically update role to Admin
+    setUsers((prevUsers) =>
+      prevUsers.map((u) => (u.id === id ? { ...u, role: "Admin" } : u)),
+    );
+
     try {
       await api.put(`/users/${id}/promote`);
-      fetchUsers();
+      await fetchUsers(true);
     } catch {
+      setUsers(originalUsers);
       alert("Failed to promote user.");
+    } finally {
+      setUpdatingIds((prev) => prev.filter((x) => x !== id));
     }
   };
 
   const demote = async (id: number) => {
+    setUpdatingIds((prev) => [...prev, id]);
+    const originalUsers = [...users];
+
+    // Optimistically update role to Employee
+    setUsers((prevUsers) =>
+      prevUsers.map((u) => (u.id === id ? { ...u, role: "Employee" } : u)),
+    );
+
     try {
       await api.put(`/users/${id}/demote`);
-      fetchUsers();
+      await fetchUsers(true);
     } catch {
+      setUsers(originalUsers);
       alert("Failed to demote user.");
+    } finally {
+      setUpdatingIds((prev) => prev.filter((x) => x !== id));
     }
   };
 
@@ -116,7 +139,7 @@ export function UsersPage() {
       setDeleting(true);
       await api.delete(`/users/${confirmDialog.userId}`);
       setConfirmDialog({ open: false, userId: null, userName: "" });
-      fetchUsers();
+      fetchUsers(true);
     } catch {
       alert("Failed to delete user. They may have tasks assigned.");
     } finally {
@@ -131,7 +154,7 @@ export function UsersPage() {
       await api.post("/users", newUser);
       setIsModalOpen(false);
       setNewUser({ name: "", email: "", password: "" });
-      fetchUsers();
+      fetchUsers(true);
     } catch (error: any) {
       // Surface helpful server validation errors when available
       let msg =
@@ -170,7 +193,7 @@ export function UsersPage() {
             <p>{loadError}</p>
             <button
               type="button"
-              onClick={fetchUsers}
+              onClick={() => fetchUsers()}
               className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
             >
               Retry
@@ -280,7 +303,7 @@ export function UsersPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           onClick={() => promote(u.id)}
-                          disabled={u.role === "Admin"}
+                          disabled={u.role === "Admin" || updatingIds.includes(u.id)}
                           className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-sky-600 hover:bg-sky-50 disabled:opacity-40 dark:text-sky-400 dark:hover:bg-sky-900/20"
                         >
                           <ArrowUpCircle size={14} />{" "}
@@ -288,7 +311,7 @@ export function UsersPage() {
                         </button>
                         <button
                           onClick={() => demote(u.id)}
-                          disabled={u.role === "Employee"}
+                          disabled={u.role === "Employee" || updatingIds.includes(u.id)}
                           className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 disabled:opacity-40 dark:text-amber-400 dark:hover:bg-amber-900/20"
                         >
                           <ArrowDownCircle size={14} />{" "}
@@ -296,7 +319,8 @@ export function UsersPage() {
                         </button>
                         <button
                           onClick={() => askDelete(u)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                          disabled={updatingIds.includes(u.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-900/20"
                         >
                           <Trash2 size={14} />{" "}
                           <span className="hidden sm:inline">Delete</span>
