@@ -1,4 +1,4 @@
-# Employee Task Tracker Suite
+# Employee Task Tracker
 
 A complete task tracking and project management system. This project includes:
 - **ASP.NET Core REST API** backend
