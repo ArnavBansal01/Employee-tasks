@@ -4,3 +4,8 @@ GET {{TaskTrackerAPI_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+GET {{TaskTrackerAPI_HostAddress}}/api/health
+Accept: application/json
+
+###

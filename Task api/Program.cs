@@ -155,11 +155,25 @@ builder.Services.AddCors(options =>
     });
 });
 // Initialize Firebase Admin SDK to allow the Admin to forge accounts
-FirebaseApp.Create(new AppOptions()
+// 1. Try to get the JSON string from the server's Environment Variables
+var firebaseJsonConfig = Environment.GetEnvironmentVariable("FIREBASE_CONFIG");
+
+if (string.IsNullOrEmpty(firebaseJsonConfig))
 {
-    // Pointing to the JSON file we placed in the folder earlier!
-    Credential = GoogleCredential.FromFile("firebase-adminsdk.json")
-});
+    // 2. If it's not on the server, fallback to the local file for your testing on localhost
+    FirebaseApp.Create(new AppOptions()
+    {
+        Credential = GoogleCredential.FromFile("firebase-adminsdk.json")
+    });
+}
+else
+{
+    // 3. If the server has the variable, use it directly!
+    FirebaseApp.Create(new AppOptions()
+    {
+        Credential = GoogleCredential.FromJson(firebaseJsonConfig)
+    });
+}
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
